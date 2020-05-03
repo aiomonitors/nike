@@ -1,1 +1,3 @@
 config.json
+proxies.txt
+go-exec-build.bash

@@ -80,8 +80,10 @@ func NewMonitor(pathToConfig string, proxyPath string) (*Monitor, error) {
 	//Proxy initialization
 	if proxyPath != "" {
 		manager, managerErr := proxymanager.NewManager(proxyPath)
-		if managerErr != nil {
+		if managerErr == nil {
 			m.Manager = *manager
+			m.UseProxies = true
+			logger.Green("Loaded %v proxies", len(m.Manager.Proxies))
 		} else {
 			m.UseProxies = false
 			color.Red("Error loading proxy file")
@@ -304,7 +306,7 @@ func (m *Monitor) MonitorSKU(sku string) {
 		logger.Red("Error monitoring %s")
 		return
 	}
-	diff := difference(m.Availability[sku], s.AvailableSizes)
+	diff := difference(s.AvailableSizes, m.Availability[sku])
 	if len(diff) > 0 {
 		logger.Green("%s Restocked [S:%s]", s.Name, sku)
 		s.Notification = "Restock"
@@ -404,12 +406,13 @@ func (m *Monitor) Start() {
 	go m.Initialize()
 	m.InitializeSKUs()
 	go m.RefreshSKUs()
+	go m.UpdateHooks()
 	go m.MonitorNew()
 	m.MonitorSKUs()
 }
 
 func main() {
-	m, mErr := NewMonitor("config.json", "")
+	m, mErr := NewMonitor("config.json", "./proxies.txt")
 	if mErr != nil {
 		panic(mErr)
 	}
@@ -423,7 +426,7 @@ func main() {
 	// p.Notification = "Restock"
 	// m.SendToDiscord(p)
 	// time.Sleep(2000 * time.Millisecond)
-	// m.Products = m.Products[2:]
+	// m.Availability["852542-011"] = m.Availability["852542-011"][2:]
+	// logger.Red("Changed")
 	// time.Sleep(3000 * time.Millisecond)
-
 }
