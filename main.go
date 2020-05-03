@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/aiomonitors/nike/product"
@@ -124,12 +125,28 @@ func (m *Monitor) UpdateClient() error {
 	return nil
 }
 
-func (m *Monitor) GetWebhooks() []godiscord.Webhook {
-	logger.Yellow("Retrieving hooks")
-	var obj Config
-	file, _ := ioutil.ReadFile(m.ConfigPath)
-	json.Unmarshal(file, &obj)
-	return obj.Webhooks
+func (m *Monitor) UpdateHooks() {
+	i := true
+	for i == true {
+		time.Sleep(7 * time.Second)
+		logger.Yellow("Updating hooks")
+		var obj Config
+		file, _ := ioutil.ReadFile(m.ConfigPath)
+		json.Unmarshal(file, &obj)
+		m.Config.Webhooks = obj.Webhooks
+	}
+}
+
+func (m *Monitor) RefreshSKUs() {
+	i := true
+	for i == true {
+		time.Sleep(5 * time.Second)
+		logger.Yellow("Rereading SKUs")
+		var obj Config
+		file, _ := ioutil.ReadFile(m.ConfigPath)
+		json.Unmarshal(file, &obj)
+		m.Config.SKUs = obj.SKUs
+	}
 }
 
 func (m *Monitor) GetProducts() ([]string, error) {
@@ -162,15 +179,15 @@ func (m *Monitor) GetProducts() ([]string, error) {
 
 	ids := []string{}
 	for _, item := range obj.Objects {
-		ids = append(ids, item.ProductInfo[0].MerchProduct.CatalogID)
+		ids = append(ids, item.ProductInfo[0].MerchProduct.StyleColor)
 	}
 	return ids, nil
 }
 
-func (m *Monitor) GetProduct(catalogID string) (types.ProductInfo, error) {
+func (m *Monitor) GetProduct(styleColor string) (types.ProductInfo, error) {
 	start := time.Now()
 	emptyResp := types.ProductInfo{}
-	req, reqErr := http.NewRequest("GET", fmt.Sprintf("https://api.nike.com/product_feed/threads/v2/%s?channelId=d9a5bc42-4b9c-4976-858a-f159cf99c647&marketplace=US&language=en", catalogID), nil)
+	req, reqErr := http.NewRequest("GET", fmt.Sprintf("https://api.nike.com/product_feed/threads/v2?filter=channelId(d9a5bc42-4b9c-4976-858a-f159cf99c647)&filter=marketplace(US)&filter=language(en)&filter=productInfo.merchProduct.styleColor(%s)", styleColor), nil)
 	if reqErr != nil {
 		logger.Red("Error in the request %s", reqErr)
 		return emptyResp, reqErr
@@ -188,31 +205,48 @@ func (m *Monitor) GetProduct(catalogID string) (types.ProductInfo, error) {
 	}
 	defer res.Body.Close()
 
-	var obj product.Product
+	var rawObj product.ProductJson
 	body, bodyErr := ioutil.ReadAll(res.Body)
 	if bodyErr != nil {
 		logger.Red("Error reading body %s", bodyErr)
 		return emptyResp, bodyErr
 	}
-	json.Unmarshal(body, &obj)
+	json.Unmarshal(body, &rawObj)
+	obj := rawObj.Objects[0]
 
 	Product := types.ProductInfo{}
-	Product.Name = obj.ProductInfo[0].ProductContent.FullTitle
-	Product.Link = fmt.Sprintf("https://www.nike.com/t/%s", obj.ProductInfo[0].ProductContent.Slug)
+	Product.Name = obj.ProductInfo[0].ProductContent.FullTitle + " " + obj.ProductInfo[0].ProductContent.ColorDescription
+	Product.Style = obj.ProductInfo[0].MerchProduct.StyleColor
+	Product.Link = fmt.Sprintf("https://www.nike.com/t/%s/%s", obj.ProductInfo[0].ProductContent.Slug, Product.Style)
 	Product.Price = fmt.Sprintf("%v", obj.ProductInfo[0].MerchPrice.FullPrice)
-	Product.Exec = fmt.Sprintf("%v", time.Since(start))
+	Product.Image = obj.PublishedContent.Nodes[0].Nodes[0].Properties.SquarishURL
+
+	//SKUS Stuff
 	Product.AvailableSizes = make([]string, 0)
-	SKUsAvail := map[string]bool{}
+	Product.DiscordSKUs = make([]string, 0)
+
+	SKUsAvail := map[string]bool{}   //Map of availability by sku id
+	SKUsStock := map[string]string{} // Map of stock by sku id
 	for _, sku := range obj.ProductInfo[0].AvailableSkus {
 		SKUsAvail[sku.ID] = sku.Available
+		SKUsStock[sku.ID] = sku.Level
 	}
+
 	for _, sku := range obj.ProductInfo[0].Skus {
 		if SKUsAvail[sku.ID] {
 			Product.AvailableSizes = append(Product.AvailableSizes, sku.NikeSize)
+			spaces := ""
+			for i := 5 - len(sku.NikeSize); i >= 0; i-- {
+				spaces += " "
+			}
+			Product.DiscordSKUs = append(Product.DiscordSKUs, fmt.Sprintf("**%s**%s[%s]", sku.NikeSize, spaces, SKUsStock[sku.ID]))
 		}
 	}
+
+	Product.Exec = fmt.Sprintf("%v", time.Since(start))
 	return Product, nil
 }
+
 func (m *Monitor) Initialize() {
 	s, sErr := m.GetProducts()
 	if sErr != nil {
@@ -254,9 +288,34 @@ func (m *Monitor) NewProduct(catalogID string) {
 	fmt.Println(catalogID)
 }
 
+func (m *Monitor) SendToDiscord(p types.ProductInfo) {
+	for _, webhook := range m.Config.Webhooks {
+		go func(p *types.ProductInfo, webhook *godiscord.Webhook) {
+			emb := godiscord.NewEmbed(p.Name, "", p.Link)
+			emb.AddField("Price", fmt.Sprintf("**$%s**", p.Price), true)
+			emb.AddField("Type", p.Notification, true)
+			emb.AddField("Style", p.Style, false)
+			if len(p.DiscordSKUs) > 6 {
+				emb.AddField("Sizes", strings.Join(p.DiscordSKUs[:len(p.DiscordSKUs)/2], "\n"), true)
+				emb.AddField("Sizes", strings.Join(p.DiscordSKUs[len(p.DiscordSKUs)/2:], "\n"), true)
+			}
+			emb.SetThumbnail(p.Image)
+			if len(webhook.Color) > 0 {
+				emb.SetColor(webhook.Color)
+			} else {
+				emb.SetColor("#7f5af0")
+			}
+			emb.SetAuthor("Nike US", "", "")
+			emb.SetFooter(webhook.Text, webhook.IconURL)
+			emb.SendToWebhook(webhook.URL)
+		}(&p, &webhook)
+	}
+}
+
 func (m *Monitor) Start() {
 	logger.Green("Starting monitor")
 	m.Initialize()
+	go m.RefreshSKUs()
 	m.MonitorNew()
 }
 
@@ -266,13 +325,15 @@ func main() {
 		panic(mErr)
 	}
 
-	//m.Start()
-	p, pErr := m.GetProduct("8822fad8-2339-38a7-89dc-393369d0c9cb")
+	// m.Start()
+	p, pErr := m.GetProduct("852542-011")
 	if pErr != nil {
 		panic(pErr)
 	}
 	fmt.Println(p)
-	// time.Sleep(2000 * time.Millisecond)
+	p.Notification = "Restock"
+	m.SendToDiscord(p)
+	time.Sleep(2000 * time.Millisecond)
 	// m.Products = m.Products[2:]
 	// time.Sleep(3000 * time.Millisecond)
 
