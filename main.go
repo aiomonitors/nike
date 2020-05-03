@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aiomonitors/nike/product"
@@ -28,7 +30,7 @@ type Config struct {
 
 type Monitor struct {
 	Config       Config                    `json:"config"`
-	Availability map[string]bool           `json:"availability`
+	Availability map[string][]string       `json:"availability`
 	Manager      proxymanager.ProxyManager `json:"manager"`
 	UseProxies   bool                      `json:"use_proxies"`
 	Client       http.Client               `json:"client"`
@@ -259,6 +261,60 @@ func (m *Monitor) Initialize() {
 	return
 }
 
+func (m *Monitor) InitializeSKUs() {
+	var wg sync.WaitGroup
+	wg.Add(len(m.Config.SKUs))
+	m.Availability = map[string][]string{}
+
+	start := time.Now()
+
+	for _, sku := range m.Config.SKUs {
+		go func(sku string) {
+			defer wg.Done()
+			s, sErr := m.GetProduct(sku)
+			if sErr != nil {
+				logger.Red("Error initializing %s", sku)
+				m.Config.SKUs = remove(m.Config.SKUs, sku)
+				return
+			}
+			m.Availability[sku] = s.AvailableSizes
+			logger.Green("[%s] Initialized %s", s.Exec, s.Name)
+			return
+		}(sku)
+	}
+	wg.Wait()
+	logger.Green("[%v] Initialized %v skus", time.Since(start), len(m.Config.SKUs))
+}
+
+func (m *Monitor) InitializeSKU(sku string) {
+	s, sErr := m.GetProduct(sku)
+	if sErr != nil {
+		logger.Red("Error initializing %s", sku)
+		m.Config.SKUs = remove(m.Config.SKUs, sku)
+		return
+	}
+	m.Availability[sku] = s.AvailableSizes
+	logger.Green("[%s] Initialized %s", s.Exec, s.Name)
+	return
+}
+
+func (m *Monitor) MonitorSKU(sku string) {
+	s, sErr := m.GetProduct(sku)
+	if sErr != nil {
+		logger.Red("Error monitoring %s")
+		return
+	}
+	diff := difference(m.Availability[sku], s.AvailableSizes)
+	if len(diff) > 0 {
+		logger.Green("%s Restocked [S:%s]", s.Name, sku)
+		s.Notification = "Restock"
+		go m.SendToDiscord(s)
+	}
+	m.Availability[sku] = s.AvailableSizes
+	logger.Blue("[%s] Monitored %s", s.Exec, s.Name)
+	return
+}
+
 func (m *Monitor) MonitorNew() {
 	i := true
 	for i == true {
@@ -284,8 +340,37 @@ func (m *Monitor) MonitorNew() {
 	}
 }
 
-func (m *Monitor) NewProduct(catalogID string) {
-	fmt.Println(catalogID)
+func (m *Monitor) MonitorSKUs() {
+	i := true
+	var wg sync.WaitGroup
+	for i == true {
+		rand.Seed(time.Now().UnixNano())
+		wg.Add(len(m.Config.SKUs))
+		for _, sku := range m.Config.SKUs {
+			go func(sku string) {
+				defer wg.Done()
+				time.Sleep(time.Duration(rand.Intn(1000-750)+1000) * time.Millisecond)
+				if _, exists := m.Availability[sku]; exists {
+					m.MonitorSKU(sku)
+				} else {
+					m.InitializeSKU(sku)
+				}
+				return
+			}(sku)
+		}
+		wg.Wait()
+		continue
+	}
+}
+
+func (m *Monitor) NewProduct(styleCode string) {
+	p, pErr := m.GetProduct(styleCode)
+	if pErr != nil {
+		logger.Red("Erorr fetching %s [NEW]", styleCode)
+		return
+	}
+	p.Notification = "New"
+	m.SendToDiscord(p)
 }
 
 func (m *Monitor) SendToDiscord(p types.ProductInfo) {
@@ -298,6 +383,8 @@ func (m *Monitor) SendToDiscord(p types.ProductInfo) {
 			if len(p.DiscordSKUs) > 6 {
 				emb.AddField("Sizes", strings.Join(p.DiscordSKUs[:len(p.DiscordSKUs)/2], "\n"), true)
 				emb.AddField("Sizes", strings.Join(p.DiscordSKUs[len(p.DiscordSKUs)/2:], "\n"), true)
+			} else if len(p.DiscordSKUs) > 0 {
+				emb.AddField("Sizes", strings.Join(p.DiscordSKUs, "\n"), false)
 			}
 			emb.SetThumbnail(p.Image)
 			if len(webhook.Color) > 0 {
@@ -314,9 +401,11 @@ func (m *Monitor) SendToDiscord(p types.ProductInfo) {
 
 func (m *Monitor) Start() {
 	logger.Green("Starting monitor")
-	m.Initialize()
+	go m.Initialize()
+	m.InitializeSKUs()
 	go m.RefreshSKUs()
-	m.MonitorNew()
+	go m.MonitorNew()
+	m.MonitorSKUs()
 }
 
 func main() {
@@ -325,15 +414,15 @@ func main() {
 		panic(mErr)
 	}
 
-	// m.Start()
-	p, pErr := m.GetProduct("852542-011")
-	if pErr != nil {
-		panic(pErr)
-	}
-	fmt.Println(p)
-	p.Notification = "Restock"
-	m.SendToDiscord(p)
-	time.Sleep(2000 * time.Millisecond)
+	m.Start()
+	// p, pErr := m.GetProduct("852542-011")
+	// if pErr != nil {
+	// 	panic(pErr)
+	// }
+	// fmt.Println(p)
+	// p.Notification = "Restock"
+	// m.SendToDiscord(p)
+	// time.Sleep(2000 * time.Millisecond)
 	// m.Products = m.Products[2:]
 	// time.Sleep(3000 * time.Millisecond)
 
