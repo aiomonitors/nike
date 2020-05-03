@@ -1,0 +1,9 @@
+{
+    "webhooks" : [
+        {
+            "webhook" : "",
+            "text" : "OnDemand",
+            "icon" : "https://www.shihab.dev/ondemand.png"
+        }
+    ]
+}
