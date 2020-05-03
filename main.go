@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/aiomonitors/nike/product"
 	"github.com/aiomonitors/nike/types"
 
 	"github.com/aiomonitors/godiscord"
@@ -166,6 +167,52 @@ func (m *Monitor) GetProducts() ([]string, error) {
 	return ids, nil
 }
 
+func (m *Monitor) GetProduct(catalogID string) (types.ProductInfo, error) {
+	start := time.Now()
+	emptyResp := types.ProductInfo{}
+	req, reqErr := http.NewRequest("GET", fmt.Sprintf("https://api.nike.com/product_feed/threads/v2/%s?channelId=d9a5bc42-4b9c-4976-858a-f159cf99c647&marketplace=US&language=en", catalogID), nil)
+	if reqErr != nil {
+		logger.Red("Error in the request %s", reqErr)
+		return emptyResp, reqErr
+	}
+
+	// set headers
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	res, resError := m.Client.Do(req)
+	if resError != nil {
+		logger.Red("Error in the request %s", resError)
+		return emptyResp, resError
+	}
+	defer res.Body.Close()
+
+	var obj product.Product
+	body, bodyErr := ioutil.ReadAll(res.Body)
+	if bodyErr != nil {
+		logger.Red("Error reading body %s", bodyErr)
+		return emptyResp, bodyErr
+	}
+	json.Unmarshal(body, &obj)
+
+	Product := types.ProductInfo{}
+	Product.Name = obj.ProductInfo[0].ProductContent.FullTitle
+	Product.Link = fmt.Sprintf("https://www.nike.com/t/%s", obj.ProductInfo[0].ProductContent.Slug)
+	Product.Price = fmt.Sprintf("%v", obj.ProductInfo[0].MerchPrice.FullPrice)
+	Product.Exec = fmt.Sprintf("%v", time.Since(start))
+	Product.AvailableSizes = make([]string, 0)
+	SKUsAvail := map[string]bool{}
+	for _, sku := range obj.ProductInfo[0].AvailableSkus {
+		SKUsAvail[sku.ID] = sku.Available
+	}
+	for _, sku := range obj.ProductInfo[0].Skus {
+		if SKUsAvail[sku.ID] {
+			Product.AvailableSizes = append(Product.AvailableSizes, sku.NikeSize)
+		}
+	}
+	return Product, nil
+}
 func (m *Monitor) Initialize() {
 	s, sErr := m.GetProducts()
 	if sErr != nil {
@@ -219,7 +266,12 @@ func main() {
 		panic(mErr)
 	}
 
-	m.Start()
+	//m.Start()
+	p, pErr := m.GetProduct("8822fad8-2339-38a7-89dc-393369d0c9cb")
+	if pErr != nil {
+		panic(pErr)
+	}
+	fmt.Println(p)
 	// time.Sleep(2000 * time.Millisecond)
 	// m.Products = m.Products[2:]
 	// time.Sleep(3000 * time.Millisecond)
