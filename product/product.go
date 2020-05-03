@@ -1,6 +1,11 @@
 package product
 
-type Product struct {
+type ProductJson struct {
+	Pages   Pages    `json:"pages"`
+	Objects []Object `json:"objects"`
+}
+
+type Object struct {
 	ID                string           `json:"id"`
 	ChannelID         string           `json:"channelId"`
 	ChannelName       string           `json:"channelName"`
@@ -12,7 +17,7 @@ type Product struct {
 	Search            Search           `json:"search"`
 	CollectionTermIDS []string         `json:"collectionTermIds"`
 	ResourceType      string           `json:"resourceType"`
-	Links             ProductLinks     `json:"links"`
+	Links             ObjectLinks      `json:"links"`
 	Collectionsv2     Collectionsv2    `json:"collectionsv2"`
 }
 
@@ -21,7 +26,7 @@ type Collectionsv2 struct {
 	CollectionTermIDS        []string            `json:"collectionTermIds"`
 }
 
-type ProductLinks struct {
+type ObjectLinks struct {
 	Self Self `json:"self"`
 }
 
@@ -33,6 +38,7 @@ type ProductInfo struct {
 	MerchProduct   MerchProductClass      `json:"merchProduct"`
 	MerchPrice     MerchPrice             `json:"merchPrice"`
 	Availability   Availability           `json:"availability"`
+	LaunchView     LaunchView             `json:"launchView"`
 	ProductContent ProductContent         `json:"productContent"`
 	ImageUrls      ImageUrls              `json:"imageUrls"`
 	Skus           []Skus                 `json:"skus"`
@@ -40,25 +46,36 @@ type ProductInfo struct {
 }
 
 type Availability struct {
-	ID           string       `json:"id"`
-	ProductID    string       `json:"productId"`
-	ResourceType string       `json:"resourceType"`
-	Links        ProductLinks `json:"links"`
-	Available    bool         `json:"available"`
+	ID           string      `json:"id"`
+	ProductID    string      `json:"productId"`
+	ResourceType string      `json:"resourceType"`
+	Links        ObjectLinks `json:"links"`
+	Available    bool        `json:"available"`
 }
 
 type AvailableSkusElement struct {
 	ID           string                    `json:"id"`
 	ProductID    string                    `json:"productId"`
 	ResourceType AvailableSkusResourceType `json:"resourceType"`
-	Links        ProductLinks              `json:"links"`
+	Links        ObjectLinks               `json:"links"`
 	Available    bool                      `json:"available"`
-	Level        Level                     `json:"level"`
+	Level        string                    `json:"level"`
 	SkuID        string                    `json:"skuId"`
 }
 
 type ImageUrls struct {
 	ProductImageURL string `json:"productImageUrl"`
+}
+
+type LaunchView struct {
+	ID             string      `json:"id"`
+	ResourceType   string      `json:"resourceType"`
+	ProductID      string      `json:"productId"`
+	Method         string      `json:"method"`
+	PaymentMethod  string      `json:"paymentMethod"`
+	StartEntryDate string      `json:"startEntryDate"`
+	StopEntryDate  string      `json:"stopEntryDate"`
+	Links          ObjectLinks `json:"links"`
 }
 
 type MerchPrice struct {
@@ -75,9 +92,9 @@ type MerchPrice struct {
 	Currency         string        `json:"currency"`
 	Discounted       bool          `json:"discounted"`
 	PromoInclusions  []interface{} `json:"promoInclusions"`
-	PromoExclusions  []interface{} `json:"promoExclusions"`
+	PromoExclusions  []string      `json:"promoExclusions"`
 	ResourceType     string        `json:"resourceType"`
-	Links            ProductLinks  `json:"links"`
+	Links            ObjectLinks   `json:"links"`
 }
 
 type MerchProductClass struct {
@@ -115,10 +132,14 @@ type MerchProductClass struct {
 	IsCopyAvailable           bool                `json:"isCopyAvailable"`
 	IsAttributionApproved     bool                `json:"isAttributionApproved"`
 	ExclusiveAccess           bool                `json:"exclusiveAccess"`
+	HardLaunch                bool                `json:"hardLaunch"`
+	HideFromCSR               bool                `json:"hideFromCSR"`
 	CommercePublishDate       string              `json:"commercePublishDate"`
 	CommerceStartDate         string              `json:"commerceStartDate"`
+	InventoryOverride         bool                `json:"inventoryOverride"`
+	SoftLaunchDate            string              `json:"softLaunchDate"`
 	ResourceType              Type                `json:"resourceType"`
-	Links                     ProductLinks        `json:"links"`
+	Links                     ObjectLinks         `json:"links"`
 }
 
 type ConsumerChannel struct {
@@ -151,9 +172,11 @@ type ProductContent struct {
 	Subtitle                       string        `json:"subtitle"`
 	DescriptionHeading             string        `json:"descriptionHeading"`
 	Description                    string        `json:"description"`
+	PDPGeneral                     string        `json:"pdpGeneral"`
 	TechSpec                       string        `json:"techSpec"`
 	ManufacturingCountriesOfOrigin []interface{} `json:"manufacturingCountriesOfOrigin"`
 	SizeChart                      string        `json:"sizeChart"`
+	Marketing                      string        `json:"marketing"`
 	Colors                         []Color       `json:"colors"`
 	BestFor                        []interface{} `json:"bestFor"`
 	Athletes                       []interface{} `json:"athletes"`
@@ -186,7 +209,7 @@ type Skus struct {
 	SizeConversionID      string                 `json:"sizeConversionId"`
 	CountrySpecifications []CountrySpecification `json:"countrySpecifications"`
 	ResourceType          SkusResourceType       `json:"resourceType"`
-	Links                 ProductLinks           `json:"links"`
+	Links                 ObjectLinks            `json:"links"`
 }
 
 type CountrySpecification struct {
@@ -235,51 +258,51 @@ type PublishedContentNode struct {
 	Nodes      []NodeNode       `json:"nodes"`
 	SubType    string           `json:"subType"`
 	ID         string           `json:"id"`
-	Type       string           `json:"type"`
+	Type       NodeType         `json:"type"`
 	Version    string           `json:"version"`
 	Properties FluffyProperties `json:"properties"`
 }
 
 type NodeNode struct {
 	Analytics  Analytics        `json:"analytics"`
-	SubType    string           `json:"subType"`
+	SubType    SubType          `json:"subType"`
 	ID         string           `json:"id"`
-	Type       string           `json:"type"`
+	Type       NodeType         `json:"type"`
 	Version    string           `json:"version"`
 	Properties PurpleProperties `json:"properties"`
 }
 
 type PurpleProperties struct {
-	PortraitID   string   `json:"portraitId"`
-	SquarishURL  string   `json:"squarishURL"`
-	LandscapeID  string   `json:"landscapeId"`
-	AltText      string   `json:"altText"`
-	PortraitURL  string   `json:"portraitURL"`
-	LandscapeURL string   `json:"landscapeURL"`
-	Title        string   `json:"title"`
-	Portrait     Portrait `json:"portrait"`
-	Squarish     Portrait `json:"squarish"`
-	SEOName      string   `json:"seoName"`
-	SquarishID   string   `json:"squarishId"`
-	Subtitle     string   `json:"subtitle"`
-	ColorTheme   string   `json:"colorTheme"`
+	PortraitID   string     `json:"portraitId"`
+	SquarishURL  string     `json:"squarishURL"`
+	LandscapeID  string     `json:"landscapeId"`
+	AltText      FullTitle  `json:"altText"`
+	PortraitURL  string     `json:"portraitURL"`
+	LandscapeURL string     `json:"landscapeURL"`
+	Title        string     `json:"title"`
+	Squarish     Portrait   `json:"squarish"`
+	Portrait     Portrait   `json:"portrait"`
+	SEOName      string     `json:"seoName"`
+	SquarishID   string     `json:"squarishId"`
+	Subtitle     string     `json:"subtitle"`
+	ColorTheme   ColorTheme `json:"colorTheme"`
 }
 
 type Portrait struct {
-	ID   string   `json:"id"`
-	Type TypeEnum `json:"type"`
-	URL  string   `json:"url"`
+	ID   string       `json:"id"`
+	Type PortraitType `json:"type"`
+	URL  string       `json:"url"`
 }
 
 type FluffyProperties struct {
-	ContainerType string `json:"containerType"`
-	Loop          bool   `json:"loop"`
-	Subtitle      string `json:"subtitle"`
-	ColorTheme    string `json:"colorTheme"`
-	AutoPlay      bool   `json:"autoPlay"`
-	Title         string `json:"title"`
-	Body          string `json:"body"`
-	Speed         int64  `json:"speed"`
+	ContainerType string     `json:"containerType"`
+	Loop          bool       `json:"loop"`
+	Subtitle      string     `json:"subtitle"`
+	ColorTheme    ColorTheme `json:"colorTheme"`
+	AutoPlay      bool       `json:"autoPlay"`
+	Title         string     `json:"title"`
+	Body          string     `json:"body"`
+	Speed         int64      `json:"speed"`
 }
 
 type PublishedContentProperties struct {
@@ -302,7 +325,7 @@ type ProductCard struct {
 	Transforms       []interface{}         `json:"transforms"`
 	Language         string                `json:"language"`
 	Variants         []interface{}         `json:"variants"`
-	Type             string                `json:"type"`
+	Type             NodeType              `json:"type"`
 	CreationDate     string                `json:"creationDate"`
 	Version          string                `json:"version"`
 	Translate        Custom                `json:"translate"`
@@ -311,19 +334,19 @@ type ProductCard struct {
 	TargetLanguages  []interface{}         `json:"targetLanguages"`
 	ModificationDate string                `json:"modificationDate"`
 	Nodes            []interface{}         `json:"nodes"`
-	SubType          string                `json:"subType"`
+	SubType          SubType               `json:"subType"`
 	ID               string                `json:"id"`
 	Properties       ProductCardProperties `json:"properties"`
 	ResourceType     string                `json:"resourceType"`
 }
 
 type ProductCardProperties struct {
-	PortraitID  string   `json:"portraitId"`
 	SquarishURL string   `json:"squarishURL"`
+	PortraitID  string   `json:"portraitId"`
 	AltText     string   `json:"altText"`
 	PortraitURL string   `json:"portraitURL"`
-	Portrait    Portrait `json:"portrait"`
 	Squarish    Portrait `json:"squarish"`
+	Portrait    Portrait `json:"portrait"`
 	SquarishID  string   `json:"squarishId"`
 }
 
@@ -346,6 +369,13 @@ type Search struct {
 	ConceptIDS []string `json:"conceptIds"`
 }
 
+type Pages struct {
+	Prev           string `json:"prev"`
+	Next           string `json:"next"`
+	TotalPages     int64  `json:"totalPages"`
+	TotalResources int64  `json:"totalResources"`
+}
+
 type Marketplace string
 
 const (
@@ -355,9 +385,9 @@ const (
 type Level string
 
 const (
-	High Level = "HIGH"
-	Low  Level = "LOW"
-	Oos  Level = "OOS"
+	Low    Level = "LOW"
+	Medium Level = "MEDIUM"
+	Oos    Level = "OOS"
 )
 
 type AvailableSkusResourceType string
@@ -372,14 +402,38 @@ const (
 	MerchProduct Type = "merchProduct"
 )
 
+type FullTitle string
+
+const (
+	AirJordan5RetroMenSShoe FullTitle = "Air Jordan 5 Retro Men's Shoe"
+)
+
 type SkusResourceType string
 
 const (
 	MerchSku SkusResourceType = "merchSku"
 )
 
-type TypeEnum string
+type ColorTheme string
 
 const (
-	TypeProduct TypeEnum = "product"
+	Dark ColorTheme = "dark"
+)
+
+type PortraitType string
+
+const (
+	Product PortraitType = "product"
+)
+
+type SubType string
+
+const (
+	Image SubType = "image"
+)
+
+type NodeType string
+
+const (
+	Card NodeType = "card"
 )

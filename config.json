@@ -1,9 +1,9 @@
 {
     "webhooks" : [
         {
-            "webhook" : "",
+            "webhook" : "https://discordapp.com/api/webhooks/696119796072317009/nKJz5XNMBN2DVm6Hy69f2WNWMiCfTPAAS6eTuXEbXTu6LbfACfYP5lDMUG6D123jdEQx",
             "text" : "OnDemand",
-            "icon" : "https://www.shihab.dev/ondemand.png"
+            "icon_url" : "https://www.shihab.dev/ondemand.png"
         }
     ]
 }
