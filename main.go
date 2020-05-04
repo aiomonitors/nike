@@ -39,13 +39,14 @@ type Monitor struct {
 }
 
 var logger = gologger.Logger{Name: "nike"}
+var l = sync.RWMutex{}
+var skusLock = sync.RWMutex{}
 
 var headers = map[string]string{
-	"Host":               "api.nike.com",
-	"nike-api-caller-id": "nike:dotcom:browse.wall.client:1.0",
-	"accept":             "application/json",
-	"referer":            "https://www.nike.com/w/new-mens-shoes-3n82yznik1zy7ok",
-	"accept-language":    "en-US,en;q=0.9",
+	"Host":            "api.nike.com",
+	"user-agent":      "PostmanRuntime/7.24.1",
+	"accept-language": "en-US,en;q=0.9",
+	"Connection":      "close",
 }
 
 func remove(slice []string, s string) []string {
@@ -91,6 +92,7 @@ func NewMonitor(pathToConfig string, proxyPath string) (*Monitor, error) {
 	} else {
 		m.UseProxies = false
 	}
+	m.Client = http.Client{Timeout: 5 * time.Second}
 	m.UpdateClient()
 	//Config initialization
 	if pathToConfig != "" {
@@ -114,7 +116,7 @@ func NewMonitor(pathToConfig string, proxyPath string) (*Monitor, error) {
 
 func (m *Monitor) UpdateClient() error {
 	if m.UseProxies == true {
-		proxy, proxyErr := m.Manager.NextProxy()
+		proxy, proxyErr := m.Manager.RandomProxy()
 		if proxyErr != nil {
 			return proxyErr
 		}
@@ -122,9 +124,10 @@ func (m *Monitor) UpdateClient() error {
 		if err != nil {
 			return err
 		}
-		m.Client = http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyUrl)}}
-	} else {
-		m.Client = http.Client{}
+		defaultTransport := &http.Transport{
+			Proxy: http.ProxyURL(proxyUrl),
+		}
+		m.Client.Transport = defaultTransport
 	}
 	return nil
 }
@@ -137,36 +140,54 @@ func (m *Monitor) UpdateHooks() {
 		var obj Config
 		file, _ := ioutil.ReadFile(m.ConfigPath)
 		json.Unmarshal(file, &obj)
+		l.Lock()
 		m.Config.Webhooks = obj.Webhooks
+		l.Unlock()
 	}
 }
 
 func (m *Monitor) RefreshSKUs() {
-	i := true
-	for i == true {
-		time.Sleep(5 * time.Second)
-		logger.Yellow("Rereading SKUs")
-		var obj Config
-		file, _ := ioutil.ReadFile(m.ConfigPath)
-		json.Unmarshal(file, &obj)
-		m.Config.SKUs = obj.SKUs
-	}
+	var obj Config
+	file, _ := ioutil.ReadFile(m.ConfigPath)
+	json.Unmarshal(file, &obj)
+	skusLock.Lock()
+	m.Config.SKUs = obj.SKUs
+	skusLock.Unlock()
 }
 
 func (m *Monitor) GetProducts() ([]string, error) {
-	m.UpdateClient()
+	client := &http.Client{}
+	if m.UseProxies == true {
+		proxy, proxyErr := m.Manager.RandomProxy()
+		if proxyErr != nil {
+			client = &http.Client{}
+		}
+		proxySplit := strings.Split(proxy, ":")
+		proxy = fmt.Sprintf("http://%s:%s@%s:%s", proxySplit[2], proxySplit[3], proxySplit[0], proxySplit[1])
+		proxyUrl, err := url.Parse(proxy)
+		if err != nil {
+			logger.Red("Error with proxy %v", err)
+			client = &http.Client{}
+		}
+		defaultTransport := &http.Transport{
+			Proxy: http.ProxyURL(proxyUrl),
+		}
+		client = &http.Client{Transport: defaultTransport}
+	}
+
 	req, reqErr := http.NewRequest("GET", "https://api.nike.com/product_feed/rollup_threads/v2?filter=marketplace%28US%29&filter=language%28en%29&filter=employeePrice%28true%29&filter=attributeIds%280f64ecc7-d624-4e91-b171-b83a03dd8550%2C16633190-45e5-4830-a068-232ac7aea82c%2C53e430ba-a5de-4881-8015-68eb1cff459f%29&anchor=0&consumerChannelId=d9a5bc42-4b9c-4976-858a-f159cf99c647&count=25", nil)
 	if reqErr != nil {
 		logger.Red("Error in the request %s", reqErr)
 		return nil, reqErr
 	}
+	req.Close = true
 
 	// set headers
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
 
-	res, resError := m.Client.Do(req)
+	res, resError := client.Do(req)
 	if resError != nil {
 		logger.Red("Error in the request %s", resError)
 		return nil, resError
@@ -189,6 +210,25 @@ func (m *Monitor) GetProducts() ([]string, error) {
 }
 
 func (m *Monitor) GetProduct(styleColor string) (types.ProductInfo, error) {
+	client := &http.Client{}
+	if m.UseProxies == true {
+		proxy, proxyErr := m.Manager.RandomProxy()
+		if proxyErr != nil {
+			client = &http.Client{}
+		}
+		proxySplit := strings.Split(proxy, ":")
+		proxy = fmt.Sprintf("http://%s:%s@%s:%s", proxySplit[2], proxySplit[3], proxySplit[0], proxySplit[1])
+		proxyUrl, err := url.Parse(proxy)
+		if err != nil {
+			logger.Red("Error with proxy %v", err)
+			client = &http.Client{}
+		}
+		defaultTransport := &http.Transport{
+			Proxy: http.ProxyURL(proxyUrl),
+		}
+		client = &http.Client{Transport: defaultTransport}
+	}
+
 	start := time.Now()
 	emptyResp := types.ProductInfo{}
 	req, reqErr := http.NewRequest("GET", fmt.Sprintf("https://api.nike.com/product_feed/threads/v2?filter=channelId(d9a5bc42-4b9c-4976-858a-f159cf99c647)&filter=marketplace(US)&filter=language(en)&filter=productInfo.merchProduct.styleColor(%s)", styleColor), nil)
@@ -196,13 +236,14 @@ func (m *Monitor) GetProduct(styleColor string) (types.ProductInfo, error) {
 		logger.Red("Error in the request %s", reqErr)
 		return emptyResp, reqErr
 	}
+	req.Close = true
 
 	// set headers
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
 
-	res, resError := m.Client.Do(req)
+	res, resError := client.Do(req)
 	if resError != nil {
 		logger.Red("Error in the request %s", resError)
 		return emptyResp, resError
@@ -279,7 +320,9 @@ func (m *Monitor) InitializeSKUs() {
 				m.Config.SKUs = remove(m.Config.SKUs, sku)
 				return
 			}
+			l.Lock()
 			m.Availability[sku] = s.AvailableSizes
+			l.Unlock()
 			logger.Green("[%s] Initialized %s", s.Exec, s.Name)
 			return
 		}(sku)
@@ -306,13 +349,17 @@ func (m *Monitor) MonitorSKU(sku string) {
 		logger.Red("Error monitoring %s")
 		return
 	}
+	l.Lock()
 	diff := difference(s.AvailableSizes, m.Availability[sku])
+	l.Unlock()
 	if len(diff) > 0 {
 		logger.Green("%s Restocked [S:%s]", s.Name, sku)
 		s.Notification = "Restock"
 		go m.SendToDiscord(s)
 	}
+	l.Lock()
 	m.Availability[sku] = s.AvailableSizes
+	l.Unlock()
 	logger.Blue("[%s] Monitored %s", s.Exec, s.Name)
 	return
 }
@@ -334,7 +381,9 @@ func (m *Monitor) MonitorNew() {
 				for _, product := range diff {
 					go m.NewProduct(product)
 				}
+				l.Lock()
 				m.Products = append(m.Products, diff...)
+				l.Unlock()
 			}
 			logger.Blue("[%v] Monitored", time.Since(start))
 			return
@@ -346,12 +395,14 @@ func (m *Monitor) MonitorSKUs() {
 	i := true
 	var wg sync.WaitGroup
 	for i == true {
+		m.RefreshSKUs()
 		rand.Seed(time.Now().UnixNano())
 		wg.Add(len(m.Config.SKUs))
+		skusLock.Lock()
 		for _, sku := range m.Config.SKUs {
 			go func(sku string) {
 				defer wg.Done()
-				time.Sleep(time.Duration(rand.Intn(1000-750)+1000) * time.Millisecond)
+				time.Sleep(750 * time.Millisecond)
 				if _, exists := m.Availability[sku]; exists {
 					m.MonitorSKU(sku)
 				} else {
@@ -360,6 +411,7 @@ func (m *Monitor) MonitorSKUs() {
 				return
 			}(sku)
 		}
+		skusLock.Unlock()
 		wg.Wait()
 		continue
 	}
@@ -406,7 +458,7 @@ func (m *Monitor) Start() {
 	go m.Initialize()
 	m.InitializeSKUs()
 	go m.RefreshSKUs()
-	go m.UpdateHooks()
+	//go m.UpdateHooks()
 	go m.MonitorNew()
 	m.MonitorSKUs()
 }
@@ -425,8 +477,11 @@ func main() {
 	// fmt.Println(p)
 	// p.Notification = "Restock"
 	// m.SendToDiscord(p)
-	// time.Sleep(2000 * time.Millisecond)
-	// m.Availability["852542-011"] = m.Availability["852542-011"][2:]
-	// logger.Red("Changed")
-	// time.Sleep(3000 * time.Millisecond)
+	// 	time.Sleep(2000 * time.Millisecond)
+	// 	skusLock.Lock()
+	// 	m.Availability["852542-011"] = m.Availability["852542-011"][2:]
+	// 	skusLock.Unlock()
+	// 	logger.Red("Changed")
+	// 	time.Sleep(3000 * time.Millisecond)
+	// }
 }

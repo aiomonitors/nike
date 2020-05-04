@@ -1,6 +1,10 @@
 {
     "webhooks" : [
-        
+        {
+            "webhook" : "https://discordapp.com/api/webhooks/706572467229032512/XYIXoZG0KQIdUbhQdEFVADg118W8cu3bdYLSaBv7wYWoFg4C-wprl5jeiOTBv4YQGTHa",
+            "text" : "OnDemand",
+            "icon_url" : "https://www.shihab.dev/ondemand.png"
+        }
     ],
     "skus" : [
         "852542-146",
