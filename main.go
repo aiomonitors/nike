@@ -14,6 +14,7 @@ import (
 
 	"github.com/aiomonitors/nike/product"
 	"github.com/aiomonitors/nike/types"
+	"github.com/corpix/uarand"
 
 	"github.com/aiomonitors/godiscord"
 	"github.com/aiomonitors/gologger"
@@ -30,12 +31,17 @@ type Config struct {
 
 type Monitor struct {
 	Config       Config                    `json:"config"`
-	Availability map[string][]string       `json:"availability`
+	Availability map[string]Product        `json:"availability`
 	Manager      proxymanager.ProxyManager `json:"manager"`
 	UseProxies   bool                      `json:"use_proxies"`
 	Client       http.Client               `json:"client"`
 	ConfigPath   string                    `json:"config_path"`
 	Products     []string                  `json:"products"`
+}
+
+type Product struct {
+	sizes         []string
+	lastFetchTime int64
 }
 
 var logger = gologger.Logger{Name: "nike"}
@@ -182,8 +188,14 @@ func (m *Monitor) GetProducts() ([]string, error) {
 	}
 	req.Close = true
 
+	newHeaders := map[string]string{
+		"Host":            "api.nike.com",
+		"user-agent":      uarand.GetRandom(),
+		"accept-language": "en-US,en;q=0.9",
+		"Connection":      "close",
+	}
 	// set headers
-	for k, v := range headers {
+	for k, v := range newHeaders {
 		req.Header.Set(k, v)
 	}
 
@@ -231,7 +243,7 @@ func (m *Monitor) GetProduct(styleColor string) (types.ProductInfo, error) {
 
 	start := time.Now()
 	emptyResp := types.ProductInfo{}
-	req, reqErr := http.NewRequest("GET", fmt.Sprintf("https://api.nike.com/product_feed/threads/v2?filter=channelId(d9a5bc42-4b9c-4976-858a-f159cf99c647)&filter=marketplace(US)&filter=language(en)&filter=productInfo.merchProduct.styleColor(%s)", styleColor), nil)
+	req, reqErr := http.NewRequest("GET", fmt.Sprintf("https://api.nike.com/product_feed/threads/v2?filter=channelId(d9a5bc42-4b9c-4976-858a-f159cf99c647)&filter=marketplace(US)&filter=language(en)&filter=productInfo.merchProduct.styleColor(%s)&asdsakhd=%v", styleColor, time.Now().UnixNano()), nil)
 	if reqErr != nil {
 		logger.Red("Error in the request %s", reqErr)
 		return emptyResp, reqErr
@@ -257,6 +269,9 @@ func (m *Monitor) GetProduct(styleColor string) (types.ProductInfo, error) {
 		return emptyResp, bodyErr
 	}
 	json.Unmarshal(body, &rawObj)
+	if len(rawObj.Objects) < 1 {
+		return emptyResp, errors.New("Invalid response")
+	}
 	obj := rawObj.Objects[0]
 
 	Product := types.ProductInfo{}
@@ -307,7 +322,7 @@ func (m *Monitor) Initialize() {
 func (m *Monitor) InitializeSKUs() {
 	var wg sync.WaitGroup
 	wg.Add(len(m.Config.SKUs))
-	m.Availability = map[string][]string{}
+	m.Availability = map[string]Product{}
 
 	start := time.Now()
 
@@ -321,7 +336,7 @@ func (m *Monitor) InitializeSKUs() {
 				return
 			}
 			l.Lock()
-			m.Availability[sku] = s.AvailableSizes
+			m.Availability[sku] = Product{sizes: s.AvailableSizes, lastFetchTime: 0}
 			l.Unlock()
 			logger.Green("[%s] Initialized %s", s.Exec, s.Name)
 			return
@@ -338,7 +353,7 @@ func (m *Monitor) InitializeSKU(sku string) {
 		m.Config.SKUs = remove(m.Config.SKUs, sku)
 		return
 	}
-	m.Availability[sku] = s.AvailableSizes
+	m.Availability[sku] = Product{sizes: s.AvailableSizes, lastFetchTime: 0}
 	logger.Green("[%s] Initialized %s", s.Exec, s.Name)
 	return
 }
@@ -350,16 +365,21 @@ func (m *Monitor) MonitorSKU(sku string) {
 		return
 	}
 	l.Lock()
-	diff := difference(s.AvailableSizes, m.Availability[sku])
-	l.Unlock()
+	diff := difference(s.AvailableSizes, m.Availability[sku].sizes)
+	defer l.Unlock()
+	product := m.Availability[sku]
 	if len(diff) > 0 {
-		logger.Green("%s Restocked [S:%s]", s.Name, sku)
 		s.Notification = "Restock"
-		go m.SendToDiscord(s)
+		if time.Now().UnixNano()/int64(time.Millisecond)-product.lastFetchTime > 20000 {
+			logger.Green("%s Restocked [S:%s]", s.Name, sku)
+			product.lastFetchTime = time.Now().UnixNano() / int64(time.Millisecond)
+			go m.SendToDiscord(s)
+		} else {
+			logger.Green("%s Restocked [S:%s] [IGNORE(%v)]", s.Name, sku, time.Now().UnixNano()/int64(time.Millisecond)-product.lastFetchTime)
+		}
 	}
-	l.Lock()
-	m.Availability[sku] = s.AvailableSizes
-	l.Unlock()
+	product.sizes = s.AvailableSizes
+	m.Availability[sku] = product
 	logger.Blue("[%s] Monitored %s", s.Exec, s.Name)
 	return
 }
@@ -470,18 +490,19 @@ func main() {
 	}
 
 	m.Start()
-	// p, pErr := m.GetProduct("852542-011")
+	// p, pErr := m.GetProduct("CW0367-100")
 	// if pErr != nil {
 	// 	panic(pErr)
 	// }
 	// fmt.Println(p)
 	// p.Notification = "Restock"
 	// m.SendToDiscord(p)
-	// 	time.Sleep(2000 * time.Millisecond)
-	// 	skusLock.Lock()
-	// 	m.Availability["852542-011"] = m.Availability["852542-011"][2:]
-	// 	skusLock.Unlock()
-	// 	logger.Red("Changed")
-	// 	time.Sleep(3000 * time.Millisecond)
-	// }
+	// time.Sleep(2000 * time.Millisecond)
+	// skusLock.Lock()
+	// product := m.Availability["852542-011"]
+	// product.sizes = product.sizes[2:]
+	// m.Availability["852542-011"] = product
+	// skusLock.Unlock()
+	// logger.Red("Changed")
+	// time.Sleep(1000 * time.Millisecond)
 }
