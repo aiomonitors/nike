@@ -449,7 +449,8 @@ func (m *Monitor) NewProduct(styleCode string) {
 
 func (m *Monitor) SendToDiscord(p types.ProductInfo) {
 	for _, webhook := range m.Config.Webhooks {
-		go func(p *types.ProductInfo, webhook *godiscord.Webhook) {
+		go func(p *types.ProductInfo, webhook godiscord.Webhook) {
+			fmt.Println(webhook)
 			emb := godiscord.NewEmbed(p.Name, "", p.Link)
 			emb.AddField("Price", fmt.Sprintf("**$%s**", p.Price), true)
 			emb.AddField("Type", p.Notification, true)
@@ -469,7 +470,7 @@ func (m *Monitor) SendToDiscord(p types.ProductInfo) {
 			emb.SetAuthor("Nike US", "", "")
 			emb.SetFooter(webhook.Text, webhook.IconURL)
 			emb.SendToWebhook(webhook.URL)
-		}(&p, &webhook)
+		}(&p, webhook)
 	}
 }
 
@@ -488,7 +489,7 @@ func main() {
 	if mErr != nil {
 		panic(mErr)
 	}
-
+	// fmt.Println(m.Config.Webhooks)
 	m.Start()
 	// p, pErr := m.GetProduct("CW0367-100")
 	// if pErr != nil {
@@ -504,5 +505,9 @@ func main() {
 	// m.Availability["852542-011"] = product
 	// skusLock.Unlock()
 	// logger.Red("Changed")
+	// time.Sleep(1000 * time.Millisecond)
+
+	// p := types.ProductInfo{}
+	// m.SendToDiscord(p)
 	// time.Sleep(1000 * time.Millisecond)
 }
