@@ -1,9 +1,9 @@
 {
     "webhooks" : [
         {
-            "webhook" : "https://discordapp.com/api/webhooks/706572467229032512/XYIXoZG0KQIdUbhQdEFVADg118W8cu3bdYLSaBv7wYWoFg4C-wprl5jeiOTBv4YQGTHa",
-            "text" : "OnDemand",
-            "icon_url" : "https://www.shihab.dev/ondemand.png"
+            "webhook" : "https://discordapp.com/api/webhooks/755112882529894565/KfDBcbqRSQyk5cTo3IDQXUKOADPkS5mR9Jpua5Uvz6Vf8r2oOOyp366C5p36g4Tt-Nf3",
+            "text" : "Shihab",
+            "icon_url" : "https://www.shihab.dev/static/melody.jpeg"
         }
     ],
     "skus" : [
@@ -15,6 +15,7 @@
         "DA1911-102",
         "553558-301",
         "852542-011",
-        "CV3044-100"
+        "CV3044-100",
+        "553558-124"
     ]
 }
